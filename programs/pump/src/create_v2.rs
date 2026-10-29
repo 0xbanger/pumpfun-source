@@ -737,7 +737,7 @@ pub fn execute<'info>(ctx:Context<'_,'_,'_,'info,CreateV2<'info>>,name:String,sy
 
  require_eq!(a.global.create_v2_enabled,true,PumpError::CreateV2Disabled);
  let (quote_mint,reserves,source)=validate_quote_mint(&ctx,ctx.remaining_accounts)?;
-
+ let compare_mint=quote_mint;
 
 
 
@@ -782,7 +782,7 @@ pub fn execute<'info>(ctx:Context<'_,'_,'_,'info,CreateV2<'info>>,name:String,sy
  };
  let global:&Global=&ctx.accounts.global;
  let depth=if let Some((_,depth))=reserves {depth} else {0};
- let virtual_quote_reserves={let (m,r)=(quote_mint,reserves);if m==Pubkey::default() {global.initial_virtual_sol_reserves} else {r.map_or(global.initial_virtual_quote_reserves,|(r,_)|r)}};
+ let virtual_quote_reserves=if compare_mint==Pubkey::default() {global.initial_virtual_sol_reserves} else {reserves.map_or(global.initial_virtual_quote_reserves,|(r,_)|r)};
  let bonding_curve:&mut trade_types::BondingCurve=&mut ctx.accounts.bonding_curve;
  bonding_curve.creator=creator;
  bonding_curve.initial_virtual_quote_reserves=virtual_quote_reserves;

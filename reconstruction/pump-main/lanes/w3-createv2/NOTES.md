@@ -50,3 +50,21 @@ Source trials (all 1022/276, no gains/losses, all rejected): vqr helper by value
 both Global loads), by reference (0.509), result kept as `quote` with fields in place (0.416: 56 B quote alloca),
 `to_bytes()==[0;32]` compare (0.448) and a by-value `is_sol_quote` helper (0.455, MIR-inlined): the last two
 put quote_mint at the top slot but, no longer escaping, SROA splits it to 24 B.
+
+
+## Round 2026-10-29 (main 9f9d94c) — compare_mint early binding
+
+Trial `r2t2-02-compare-mint-early` (Codex gpt-6.1-terra xhigh): bind `let compare_mint=quote_mint;`
+immediately after validation (replacing one blank), and compare `compare_mint` in the
+virtual_quote_reserves expression instead of a local `(m,r)` copy.
+
+| metric | main 9f9d94c | this |
+|---|---:|---:|
+| ratio | 0.75114 | **0.75188** |
+| cand bytes | 15632 | **15560** (orig 15576) |
+| calls | 125 | 125 |
+| official | 1022/276 | 1022/276 |
+| losses | 0 | 0 |
+
+Many other SEL/SWAP source forms this session scored worse (see ab-modelos).
+
