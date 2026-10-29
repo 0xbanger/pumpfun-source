@@ -61,3 +61,22 @@ distance at 7656 B), t33 token-first else-if (0.465), t34 (0.469, best), t39/t40
 
 Key insight: the original memcmp duplication is not reachable by JumpThreading from the single-eval form
 (memcmp block cost > threshold); forms with two source memcmps get the call multiset but lose layout.
+
+
+## Round 3 (2026-10-29, main 381dc30; measured also on 6654999) — Rent `From` spelling
+
+Trial `t02-rent-match-errfirst` (Codex gpt-6.1-terra xhigh): replace `Rent::get()?` with
+`match Rent::get(){Err(error)=>return Err(error.into()),Ok(rent)=>{...}}` keeping physical
+line count in the creator-native arm.
+
+| metric | main (6654999/381dc30) | t02 |
+|---|---:|---:|
+| ratio | 0.46947 | **0.47202** |
+| cand bytes | 7688 | 7640 |
+| official | 1022/276 | 1022/276 |
+| losses | 0 | 0 |
+
+Same ratio also from terra `t01-rent-match-min` and astra `a01-rent-ok-first` (Ok-first match).
+Rejected this round: terra t03 native-per-path (0.370), astra a02 creator_native cache (0.399),
+astra a03 native-protocol payout split (0.450). Window `0x4c158` patches this round were
+identical or worse; no migrate commit.
