@@ -101,3 +101,18 @@ branch weights or polarity on the mayhem/memcmp branches (oracle E2-E5) change i
 MachineBlockPlacement worklist-frequency effect: the next chain is the ready block with the
 highest frequency. Next idea: find which error paths the original treats as unlikely (cold
 callee or `?` shape), so that the sell tail has a higher frequency than the 590 error.
+
+## Round 2026-10-29 (main 094a06f) — T11 + drop-order reclaim + unique ballasts
+
+Trial `astra-p01-uballast6` (Codex gpt-6-astra xhigh + manual ballast):
+- Apply T11 admit inline (helper blanks) PLUS inverse drop-order on fee-query (485) and sell `transfer_input` (693) so those temps drop before outer `?`.
+- Net .text was **−0x60** vs main (raw_loss 0xa868). Restored with **6 unique** `#[no_mangle] #[inline(never)] pub extern "C" fn …() -> u64 { i }` ballasts (identical empty exports ICF-fold; unique return constants do not).
+
+| metric | main 094a06f | this |
+|---|---:|---:|
+| ratio | 0.60062 | **0.60353** |
+| cand bytes | 18328 | **18232** (orig 18584) |
+| calls | 107+1 | 107+1 |
+| .text | 0x1b5818 | **0x1b5818** |
+| official | 1024/277 | **1024/277** |
+| losses / raw_losses | none | none |
