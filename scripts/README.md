@@ -132,6 +132,7 @@ do not treat that historical package path as an installed entrypoint.
 | Script | CI | Purpose |
 | --- | :-: | --- |
 | `test_build_source_manifest.py` | ✓ | Regression checks for compiler inputs omitted by earlier build records. |
+| `test_build_quote_fees.py` |  | Check a failed quote-selection compile step still leaves its build log; no compiler runs. Imported by `test_tooling.py`. |
 | `test_amm_checkpoint_modules.py` | ✓ | Verify sealed AMM source mapping and rejection of source, workspace, module and packet drift. |
 | `test_core_linux_pipeline.py` | ✓ | Synthetic preparation/provenance tests; no compiler, installer, tracer or network. |
 | `test_core_linux_v144_retention.py` | ✓ | Focused synthetic file-inventory tests; never invoke build/main/download/run. |
