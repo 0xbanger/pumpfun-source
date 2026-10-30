@@ -1818,4 +1818,91 @@ class WindowScorerBaselineTests(unittest.TestCase):
         self.assertEqual(exit_.exception.code, 2)
 
 
+class EndianDecodeTests(unittest.TestCase):
+    def test_conversion_direction_and_width(self):
+        for opcode, direction in ((0xd4, 'le'), (0xdc, 'be')):
+            for width in (16, 32, 64):
+                with self.subTest(direction=direction, width=width):
+                    blob = struct.pack('<BBhi', opcode, 5, 0, width)
+                    record, size = deep_disassembly.decode_instruction(blob, 0, None)
+                    self.assertEqual(record['mnemonic'], f'{direction}{width} r5')
+                    self.assertEqual(record['imm'], width)
+                    self.assertEqual(record['hex'], blob.hex())
+                    self.assertEqual(size, 8)
+
+    def test_other_alu_operand_forms_are_unchanged(self):
+        for opcode, regs, immediate, mnemonic in (
+            (0x04, 5, 16, 'add32 r5, 16'),
+            (0x0c, 0x35, 0, 'add32 r5, r3'),
+        ):
+            with self.subTest(opcode=opcode):
+                blob = struct.pack('<BBhi', opcode, regs, 0, immediate)
+                record, _ = deep_disassembly.decode_instruction(blob, 0, None)
+                self.assertEqual(record['mnemonic'], mnemonic)
+
+    def test_captured_big_endian_conversions(self):
+        for relative in ('original/mayhem', 'dependencies/spl_token_2022'):
+            with self.subTest(capture=relative):
+                elf = deep_disassembly.Elf(
+                    analyze.ROOT / 'evidence' / relative / 'deployed.so')
+                offset = elf.lo
+                widths = []
+                while offset < elf.hi:
+                    record, size = deep_disassembly.decode_instruction(elf.b, offset, elf)
+                    if elf.b[offset] == 0xdc:
+                        widths.append(record['imm'])
+                        self.assertEqual(record['mnemonic'],
+                                         f"be{record['imm']} r{record['dst']}")
+                    offset += size
+                self.assertEqual(sorted(widths), [16] + [32] * 7)
+
+
+class MemoryWidthDecodeTests(unittest.TestCase):
+    # Explicit instruction spellings from SBPF's LD/ST/STX definitions,
+    # including word operations whose spelling was already correct.
+    FORMS = {
+        0x61: 'ldxw', 0x69: 'ldxh', 0x71: 'ldxb', 0x79: 'ldxdw',
+        0x62: 'stw', 0x6a: 'sth', 0x72: 'stb', 0x7a: 'stdw',
+        0x63: 'stxw', 0x6b: 'stxh', 0x73: 'stxb', 0x7b: 'stxdw',
+    }
+
+    def test_all_load_and_store_widths_preserve_operands(self):
+        for opcode, operation in self.FORMS.items():
+            with self.subTest(opcode=hex(opcode)):
+                cls = opcode & 7
+                regs = 5 if cls == 2 else 0x35
+                blob = struct.pack('<BBhi', opcode, regs, -16, 7)
+                record, size = deep_disassembly.decode_instruction(blob, 0, None)
+                if cls == 1:
+                    expected = f'{operation} r5, [r3-16]'
+                elif cls == 2:
+                    expected = f'{operation} [r5-16], 7'
+                else:
+                    expected = f'{operation} [r5-16], r3'
+                self.assertEqual(record['mnemonic'], expected)
+                self.assertTrue(record['memory_access'])
+                self.assertEqual((record['dst'], record['src'], record['off'], record['imm']),
+                                 (5, regs >> 4, -16, 7))
+                self.assertEqual(record['hex'], blob.hex())
+                self.assertEqual(size, 8)
+
+    def test_memory_widths_in_all_four_captured_programs(self):
+        for name in ('pump', 'pump_amm', 'pump_fees', 'mayhem'):
+            with self.subTest(program=name):
+                elf = deep_disassembly.Elf(
+                    analyze.ROOT / 'evidence/original' / name / 'deployed.so')
+                offset = elf.lo
+                seen = set()
+                mismatches = 0
+                while offset < elf.hi:
+                    record, size = deep_disassembly.decode_instruction(elf.b, offset, elf)
+                    opcode = elf.b[offset]
+                    if opcode in self.FORMS:
+                        seen.add(opcode)
+                        mismatches += record['mnemonic'].split()[0] != self.FORMS[opcode]
+                    offset += size
+                self.assertEqual(seen, set(self.FORMS))
+                self.assertEqual(mismatches, 0)
+
+
 if __name__=='__main__': unittest.main()
