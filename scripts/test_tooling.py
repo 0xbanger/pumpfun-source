@@ -45,6 +45,9 @@ import shutil
 import sys
 import tempfile
 import unittest
+from window_elf_reader import Elf
+
+
 from amm_sell.test_best_version import BestScoreVersionTests
 from amm_sell.test_sell_distance import AlignmentDistanceTests
 
@@ -336,6 +339,54 @@ import analyze_program
 import deep_disassembly
 from window_elf_reader import Elf
 from compare import compare
+class InferredStructExtentTests(unittest.TestCase):
+    def analyze_offsets(self, offsets):
+        code = b''.join(struct.pack('<BBhi', 0x79, 0x21, offset, 0) for offset in offsets)
+        header = bytearray(64)
+        struct.pack_into('<Q', header, 24, 64)
+        elf = SimpleNamespace(b=bytes(header) + code, lo=64, hi=64+len(code),
+                              entries=[64], funcs=[], secs={})
+        return deep_section_analysis.recover_anchor_idl(elf)
+
+    def test_size_inference_is_not_limited_to_twenty_displayed_fields(self):
+        for count in (20, 21, 35):
+            with self.subTest(count=count):
+                result = self.analyze_offsets(list(range(0, count*8, 8)))
+                row = result['deserialization_patterns'][0]
+                self.assertEqual(row['field_offsets'], list(range(0, min(count, 20)*8, 8)))
+                self.assertEqual(row['field_sizes'], [8]*min(count, 20))
+                self.assertEqual(row['likely_struct_size'], count*8)
+                self.assertEqual(result['inferred_struct_sizes'], [count*8])
+
+    def test_duplicate_reads_do_not_change_the_observed_extent(self):
+        offsets = list(range(0, 21*8, 8))
+        result = self.analyze_offsets(offsets + offsets[-5:])
+        self.assertEqual(result['deserialization_patterns'][0]['likely_struct_size'], 168)
+        self.assertEqual(len(result['deserialization_patterns'][0]['field_offsets']), 20)
+
+    def test_retained_patterns_use_the_full_observed_load_extent(self):
+        checked = capped = 0
+        for path in sorted(analyze.ROOT.glob('evidence/**/deployed.so')):
+            elf = Elf(path)
+            ends = dict(zip(elf.entries, elf.entries[1:] + [elf.hi]))
+            result = deep_section_analysis.recover_anchor_idl(elf)
+            for row in result['deserialization_patterns']:
+                start = int(row['window'], 16)
+                offsets = {struct.unpack_from('<h', elf.b, at+2)[0]
+                           for at in range(start, ends[start], 8)
+                           if elf.b[at] in (0x61, 0x69, 0x71, 0x79)
+                           and elf.b[at+1] >> 4 == row['base_reg']}
+                self.assertEqual(row['likely_struct_size'], max(offsets)+8,
+                                 f'{path.parent.name}:{start:#x}:r{row["base_reg"]}')
+                self.assertLessEqual(len(row['field_offsets']), 20)
+                checked += 1
+                capped += len(offsets) > 20
+        self.assertGreater(checked, 0)
+        self.assertGreater(capped, 0)
+
+
+
+
 import verify_evidence
 
 
