@@ -41,6 +41,7 @@ jobs:
               python scripts/test_tooling.py
               python -B reconstruction/harness/test_treediff_line_boundaries.py
               python -B reconstruction/harness/test_score_inputs.py
+              python -B reconstruction/harness/test_diagnostic_range_boundaries.py
               python scripts/test_build_source_manifest.py
               python scripts/test_core_linux_v144_retention.py
               # Two of three tests: the third compares against a frozen helper that was removed with repro/;
