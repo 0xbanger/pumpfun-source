@@ -31,6 +31,7 @@ jobs:
               python -B reconstruction/harness/test_integrate_failures.py
               python -B reconstruction/harness/test_integrate_no_build_cli.py
               python -I -B tests/test_integrate_patch_bytes.py
+              python -I -B reconstruction/harness/test_treediff_links.py
           - suite: offline-cargo-cache
             commands: |
               python -I -B scripts/test_prepare_locked_cargo_home.py
@@ -42,6 +43,7 @@ jobs:
               python scripts/test_tooling.py
               python -B reconstruction/harness/test_treediff_line_boundaries.py
               python -B reconstruction/harness/test_score_inputs.py
+              python -B reconstruction/harness/test_applicability_evidence_paths.py
               python -B reconstruction/harness/test_diagnostic_range_boundaries.py
               python scripts/test_build_source_manifest.py
               python scripts/test_core_linux_v144_retention.py
