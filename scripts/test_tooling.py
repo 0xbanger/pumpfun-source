@@ -133,6 +133,10 @@ from unittest.mock import patch
 import deep_section_analysis
 import deep_disassembly
 import analyze
+import bytecode_signatures
+from window_elf_reader import Elf
+
+
 import check_sbf_backend_diagnostics as backend_diagnostics
 import test_sbf_backend_diagnostics as backend_cases
 from compare import compare
@@ -770,6 +774,67 @@ class ComparisonTests(unittest.TestCase):
     def test_truncated_padding(self): self.assertFalse(compare(b'abc\0\0',b'abc\0')['full_byte_equality'])
     def test_extended_padding(self): self.assertFalse(compare(b'abc\0',b'abc\0\0')['full_byte_equality'])
     def test_empty(self): self.assertEqual(compare(b'a',b'')['first_difference'],0)
+
+
+class SerializationBoundaryTests(unittest.TestCase):
+    def detect(self, opcodes):
+        raw = b''.join(struct.pack('<BBhi', opcode, 0, 0, 0) for opcode in opcodes)
+        return bytecode_signatures.detect_serialization_patterns(SimpleNamespace(b=raw), 0, len(raw))
+
+    def test_terminal_store_run_meets_the_existing_threshold(self):
+        result = self.detect([0x63, 0x6b, 0x73, 0x7b])
+        self.assertEqual(result['sequential_stores'], 4)
+        self.assertEqual(result['max_store_run'], 4)
+        self.assertTrue(result['likely_serialization'])
+
+    def test_short_and_interrupted_runs_do_not_meet_threshold(self):
+        for opcodes in ([0x63] * 3, [0x63, 0x63, 0xb7, 0x63, 0x63], []):
+            with self.subTest(opcodes=opcodes):
+                self.assertFalse(self.detect(opcodes)['likely_serialization'])
+
+    def test_classification_does_not_depend_on_a_trailing_exit(self):
+        for opcodes in ([0x63] * 4, [0x63] * 5, [0x63] * 2 + [0xb7] + [0x63] * 4):
+            with self.subTest(opcodes=opcodes):
+                self.assertEqual(self.detect(opcodes), self.detect([*opcodes, 0x95]))
+
+    def test_retained_four_store_ranges(self):
+        ranges = {'pump': 0x1788, 'pump_amm': 0xe50, 'pump_fees': 0x1bf0, 'mayhem': 0x5720}
+        for name, start in ranges.items():
+            with self.subTest(program=name):
+                elf = Elf(analyze.ROOT / 'evidence/original' / name / 'deployed.so')
+                self.assertTrue(all(elf.b[at] in (0x63, 0x6b, 0x73, 0x7b) for at in range(start, start + 32, 8)))
+                result = bytecode_signatures.detect_serialization_patterns(elf, start, start + 32)
+                self.assertEqual(result['max_store_run'], 4)
+                self.assertTrue(result['likely_serialization'])
+
+
+class PatternTailScanTests(unittest.TestCase):
+    def test_error_branch_in_last_instruction_is_scanned(self):
+        raw = struct.pack('<BBhi', 0xb7, 0, 0, 6000) + struct.pack('<BBhi', 0x15, 0, -2, 0)
+        result = bytecode_signatures.detect_error_patterns(SimpleNamespace(b=raw), 0, len(raw))
+        self.assertEqual(result, [{'offset': 8, 'branch_target_offset': 0, 'error_code': 6000, 'type': 'conditional_error'}])
+
+    def test_account_pair_uses_only_its_two_instruction_extent(self):
+        raw = struct.pack('<BBhi', 0x79, 1, 0, 0) + struct.pack('<BBhi', 0x55, 1, 0, 8)
+        result = bytecode_signatures.detect_account_validation(SimpleNamespace(b=raw), 0, len(raw))
+        self.assertEqual(result['discriminator_checks'], 1)
+        self.assertTrue(result['likely_account_validation'])
+
+    def test_single_owner_field_load_is_included(self):
+        raw = struct.pack('<BBhi', 0x79, 1, 32, 0)
+        result = bytecode_signatures.detect_account_validation(SimpleNamespace(b=raw), 0, len(raw))
+        self.assertEqual(result['owner_field_accesses'], 1)
+        self.assertFalse(result['likely_account_validation'])
+
+    def test_empty_ranges_are_empty(self):
+        elf = SimpleNamespace(b=b'')
+        self.assertEqual(bytecode_signatures.detect_error_patterns(elf, 0, 0), [])
+        self.assertEqual(bytecode_signatures.detect_account_validation(elf, 0, 0)['owner_field_accesses'], 0)
+
+    def test_retained_pump_terminal_branch(self):
+        elf = Elf(analyze.ROOT / 'evidence/original/pump/deployed.so')
+        result = bytecode_signatures.detect_error_patterns(elf, 0xef40, 0xefc8)
+        self.assertIn({'offset': 120, 'branch_target_offset': 24, 'error_code': 0, 'type': 'conditional_error'}, result)
 
 
 class NegationDecodeTests(unittest.TestCase):
