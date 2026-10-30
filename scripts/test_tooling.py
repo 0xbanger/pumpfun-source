@@ -45,6 +45,10 @@ import shutil
 import sys
 import tempfile
 import unittest
+from amm_sell.test_best_version import BestScoreVersionTests
+from amm_sell.test_sell_distance import AlignmentDistanceTests
+
+
 from amm_sell.test_cached_status import CachedAttemptStatusTests
 
 
