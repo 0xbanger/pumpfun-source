@@ -46,6 +46,7 @@ jobs:
               python -B reconstruction/harness/test_applicability_evidence_paths.py
               python -B reconstruction/harness/test_diagnostic_range_boundaries.py
               python scripts/test_build_source_manifest.py
+              python -I -B tests/test_manifest_nested_target.py
               python scripts/test_core_linux_v144_retention.py
               # Two of three tests: the third compares against a frozen helper that was removed with repro/;
               # see .github/retired-workflows/2026-10-29-verify-matrix.md.
