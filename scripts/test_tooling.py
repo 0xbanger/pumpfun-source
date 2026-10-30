@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
 """Mutation tests ensuring the byte comparator cannot hide code/padding changes."""
+import os
+import struct
+import tempfile
+from pathlib import Path
+
+
 import contextlib
 import io
 import json
@@ -103,6 +109,9 @@ import analyze_program
 import deep_disassembly
 from window_elf_reader import Elf
 from compare import compare
+from source_manifest_guard import strict_manifest
+
+
 class DiagnosticOutputPreservationTests(unittest.TestCase):
     def invoke(self, source, output):
         return subprocess.run([sys.executable, str(analyze.ROOT / 'scripts/pump_diagnostic_audit.py'),
@@ -1001,6 +1010,49 @@ class InstructionLogNameTests(unittest.TestCase):
         self.assertEqual(len(names), 25)
         self.assertIn('Buy', names)
         self.assertIn('InitializeGlobalParams', names)
+
+
+class SourceManifestLinkedDirectoryTests(unittest.TestCase):
+    def crate(self, root):
+        root = root.resolve()
+        crate = root / 'repo/crate'
+        crate.mkdir(parents=True)
+        (crate / 'Cargo.toml').write_text('[package]\nname = "probe"\n')
+        outside = root / 'outside'
+        outside.mkdir()
+        (outside / 'lib.rs').write_text('pub fn external() {}\n')
+        return crate, outside
+
+    def test_plain_source_directory_is_accepted(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            crate, _ = self.crate(Path(temporary))
+            (crate / 'src').mkdir()
+            (crate / 'src/lib.rs').write_text('pub fn local() {}\n')
+            self.assertEqual(set(strict_manifest(crate, crate, crate.parent)), {'crate/Cargo.toml', 'crate/src/lib.rs'})
+
+    def test_symlinked_source_directory_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            crate, outside = self.crate(Path(temporary))
+            os.symlink(outside, crate / 'src')
+            with self.assertRaisesRegex(ValueError, 'symlinked directory'):
+                strict_manifest(crate, crate, crate.parent)
+
+    def test_symlinked_directory_named_target_below_the_crate_root_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            crate, outside = self.crate(Path(temporary))
+            (crate / 'src').mkdir()
+            os.symlink(outside, crate / 'src/target')
+            with self.assertRaisesRegex(ValueError, 'symlinked directory'):
+                strict_manifest(crate, crate, crate.parent)
+
+    def test_symlinked_directory_in_extra_input_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            crate, outside = self.crate(Path(temporary))
+            assets = crate.parent / 'assets'
+            assets.mkdir()
+            os.symlink(outside, assets / 'tables')
+            with self.assertRaisesRegex(ValueError, 'symlinked directory'):
+                strict_manifest(crate, crate, crate.parent, [assets])
 
 
 class RelocatedCallTargetTests(unittest.TestCase):
