@@ -1901,6 +1901,48 @@ class WindowScorerBaselineTests(unittest.TestCase):
         self.assertEqual(exit_.exception.code, 2)
 
 
+class FallbackDispatchRelocationTests(unittest.TestCase):
+    """The IDL-less entry heuristic must not report loader addresses as selectors."""
+
+    @staticmethod
+    def entry_elf(relocated):
+        # Entrypoint 0x40: lddw r1, 0x1234; call +0.
+        blob = bytearray(0x58)
+        struct.pack_into('<Q', blob, 24, 0x40)
+        blob[0x40:0x50] = bytes.fromhex('18010000341200000000000000000000')
+        blob[0x50:0x58] = bytes.fromhex('8510000000000000')
+        return SimpleNamespace(
+            b=bytes(blob), lo=0x40, hi=0x58, funcs=[],
+            relocations={0x40: {'type': 8, 'symbol': ''}} if relocated else {},
+        )
+
+    def test_relocated_lddw_is_not_a_selector(self):
+        self.assertEqual(
+            deep_disassembly.recover_anchor_dispatch(self.entry_elf(True)), {})
+
+    def test_unrelocated_scalar_candidate_is_kept(self):
+        self.assertEqual(
+            list(deep_disassembly.recover_anchor_dispatch(self.entry_elf(False))),
+            ['0x1234'])
+
+    def test_captured_mayhem_reports_no_relocated_addresses(self):
+        from window_elf_reader import Elf
+        elf = Elf(analyze.ROOT / 'evidence/original/mayhem/deployed.so')
+        relocated = set()
+        for at, relocation in elf.relocations.items():
+            if (elf.lo <= at < elf.hi and elf.b[at] == 0x18
+                    and relocation['type'] == 8):
+                low, = struct.unpack_from('<I', elf.b, at + 4)
+                high, = struct.unpack_from('<I', elf.b, at + 12)
+                relocated.add(hex(low | high << 32))
+        dispatch = deep_disassembly.recover_anchor_dispatch(elf)
+        # Panic-location and string pointers formerly reported as selectors.
+        for address in ('0xb1bd8', '0xb1b48', '0xb1b30', '0xae2a7'):
+            self.assertIn(address, relocated)
+            self.assertNotIn(address, dispatch)
+        self.assertEqual(relocated & set(dispatch), set())
+
+
 class UpstreamEvidenceSetTests(unittest.TestCase):
     """verify_evidence.py must not take the upstream IDL set from the data it checks."""
 
